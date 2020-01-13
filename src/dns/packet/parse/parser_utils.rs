@@ -19,7 +19,7 @@ pub enum ResponseParseError {
     InvalidStructure,
 
     Utf8Error(Utf8Error),
-    FromUtf8Error(FromUtf8Error)
+    FromUtf8Error(FromUtf8Error),
 }
 
 #[derive(Clone, PartialEq)]
@@ -35,6 +35,42 @@ impl<'a> PacketParser<'a> {
         Self {
             buf,
         }
+    }
+}
+
+fn parse_character_string(text: &[u8]) -> Cow<[u8]> {
+    if text.len() >= 2 && text[0] == b'"' && text[text.len() - 1] == b'"' {
+        let text = &text[1..text.len() - 1];
+        let mut has_to_unquote = false;
+        for c in text.iter() {
+            if *c == b'"' {
+                has_to_unquote = true;
+                break;
+            }
+        }
+        if !has_to_unquote {
+            Cow::Borrowed(text)
+        } else {
+            let mut res = Vec::with_capacity(text.len());
+            let mut was_backslash = false;
+            for c in text.iter().copied() {
+                if was_backslash {
+                    was_backslash = false;
+                    if c != b'"' {
+                        res.push(c);
+                    }
+                } else {
+                    if c == b'\\' {
+                        was_backslash = true;
+                    } else {
+                        res.push(c);
+                    }
+                }
+            }
+            Cow::Owned(res)
+        }
+    } else {
+        Cow::Borrowed(text)
     }
 }
 
@@ -172,8 +208,8 @@ impl<'a> PacketParser<'a> {
         }
         let os = &buf[1..(sz + 1)];
         Ok((
-            MaybeValidString::Raw(Cow::Borrowed(cpu)).into_canonical(),
-            MaybeValidString::Raw(Cow::Borrowed(os)).into_canonical()
+            MaybeValidString::Raw(parse_character_string(cpu)).into_canonical(),
+            MaybeValidString::Raw(parse_character_string(os)).into_canonical()
         ))
     }
 
@@ -186,8 +222,6 @@ impl<'a> PacketParser<'a> {
         Ok((rmailbx, emailbx))
     }
 
-    // note: TXT may include multiple strings.
-    // for spf purposes it does not make any difference anyway...
     fn parse_txt(&self, buf: &'a [u8]) -> Result<MaybeValidString<'a>, ResponseParseError> {
         if buf.len() < 1 {
             return Err(ResponseParseError::InvalidSize);
@@ -199,14 +233,8 @@ impl<'a> PacketParser<'a> {
         // here: investigate: RFC says that there may be many character string but...
         // how many?
 
-        // TODO(teawithsand): Implement parsing of text of dns.packet
-        // <character-string> is expressed in one or two ways: as a contiguous set
-        // of characters without interior spaces,
-        // /THIS IS IMPLEMENTED FURTHER PART IS NOT/
-        // or as a string beginning with a "
-        // and ending with a ".  Inside a " delimited string any character can
-        // occur, except for a " itself, which must be quoted using \ (back slash).
-        Ok(MaybeValidString::Raw(Cow::Borrowed(&buf[1..(sz + 1)])).into_canonical())
+        let text = parse_character_string(&buf[1..sz + 1]);
+        Ok(MaybeValidString::Raw(text).into_canonical())
     }
 
     fn parse_soa(&self, buf: &'a [u8]) -> Result<SoaData<'a>, ResponseParseError> {
@@ -434,6 +462,13 @@ mod test {
     fn run_test(data: &str, cb: impl FnOnce(&[u8])) {
         let data = hex::decode(data).unwrap();
         (cb)(&data[..])
+    }
+
+    #[test]
+    fn test_can_parse_character_string() {
+        assert_eq!(parse_character_string(b"asdf"), Cow::Borrowed(b"asdf"));
+        assert_eq!(parse_character_string(b"\"asdf\""), Cow::Borrowed(b"asdf"));
+        assert_eq!(parse_character_string(b"\"as\\\"df\""), Cow::Borrowed(b"asdf"));
     }
 
     #[test]
