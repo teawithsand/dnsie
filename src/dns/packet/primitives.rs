@@ -16,7 +16,7 @@ macro_rules! flag_enum {
         #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
         pub enum $name {
             $(
-                $variant_name = $variant_val
+                $variant_name = ($variant_val) as isize
             ),*
         }
 

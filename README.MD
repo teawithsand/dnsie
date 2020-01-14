@@ -5,6 +5,8 @@
 DNSie is rust dns client library. 
 It's goal is to be small, simple, cross platform DNS client library with many implementations
 of resolvers and transports for DNS packets.
+
+For now the only resolver available is using dns over https.
  
 It implements following DNS types:
  - A
